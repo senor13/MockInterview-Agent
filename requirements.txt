@@ -1,0 +1,8 @@
+anthropic
+instructor
+pydantic
+pdfplumber
+tavily-python
+langfuse
+python-dotenv
+pymupdf

@@ -165,26 +165,39 @@ Single agent. Prompt-driven. State as context. No multi-agent orchestration. No 
 The LLM handles conversation logic. Code handles bookkeeping. State block is the handshake between them.
 
 ```
-[User message]
+[User inputs: resume path + JD text]
       ↓
-[Assemble context: system prompt + state block + transcript window]
+[Guardrails — sanitize inputs]
       ↓
-[LLM call → interviewer response]
+[parse_pdf + search_company → profile extraction agent]
+      ↓
+[Assemble system prompt: resume + JD + candidate profile + company info]
+      ↓
+── Conversation Loop ──────────────────────────────────────
+[Candidate response]
+      ↓
+[Guardrails — check for prompt injection]
+      ↓
+[Assemble context: static system prompt + current state + conversation history]
+      ↓
+[LLM call → interviewer question]
       ↓
 [Code updates deterministic state fields]
       ↓
-[LLM extraction call → qualitative state fields]  ← add in Phase 2
+[LLM extraction call → qualitative state fields]  ← Phase 2
       ↓
-[Persist updated state]
+[INTERVIEW_COMPLETE? → exit loop]
+───────────────────────────────────────────────────────────
       ↓
-[Return response to user]
+[Evaluator LLM call → feedback report]
 ```
 
-**Tools the agent has access to:**
-- `parse_resume(pdf_path) → str` — extracts raw text from PDF
-- `parse_jd(pdf_path | text) → str` — extracts job description
+**Tools:**
+- `parse_pdf(pdf_path) → str` — extracts raw text from any PDF (resume or JD)
 - `search_company(name | url) → str` — fetches company context, stack, recent news
 - `send_report(email, report) → void` — delivers final feedback (Phase 4)
+
+Note: `parse_pdf` handles both resume and JD. No separate `parse_jd` tool needed.
 
 Everything else — profiling, interviewing, evaluating, report writing — is LLM reasoning over context.
 
@@ -358,6 +371,29 @@ This section is only generated if a previous session exists for the same candida
 
 ---
 
+## Guardrails
+
+Applied at two points — both before user input reaches any LLM.
+
+**Point 1 — Input stage (resume path + JD text)**
+- Validate resume path is a real file
+- Check JD text is not empty and within reasonable length
+- Strip any suspicious patterns before passing to profile agent
+
+**Point 2 — Candidate responses during interview**
+- Check each candidate response for prompt injection attempts before adding to conversation history
+- Injection patterns to detect: instructions to ignore previous context, attempts to override the system prompt, requests to reveal the prompt, role-switching instructions ("you are now...", "ignore all previous...")
+
+**Implementation:**
+`tools/guardrails.py` — a focused validation function called in two places:
+1. `main.py` before calling profile extraction agent
+2. Inside the interview loop before appending candidate response to conversation history
+
+**Response to detected injection:**
+Don't silently drop the message or crash. Return a warning to the candidate and ask them to rephrase. Log the attempt via Langfuse.
+
+---
+
 ## Infrastructure (Start From Day 1)
 
 ### Prompt Versioning
@@ -422,16 +458,18 @@ This is the data flywheel. It's only meaningful when you have enough sessions to
 
 Goal: one full interview, end to end. No polish. Watch it run, find where it breaks.
 
-- [ ] PDF parsing tool (`parse_resume`, `parse_jd`)
-- [ ] Company search tool (`search_company`)
-- [ ] System prompt v0.1.0 — the interviewer's brain
-- [ ] State block structure (Decision 1: **Hybrid** — code handles counters/phase transitions, LLM handles qualitative signals)
-- [ ] Phase transition (Decision 2: Option B — rule-based count gates)
-- [ ] Basic conversation loop (terminal input/output)
-- [ ] State serialized and passed every turn
-- [ ] Langfuse wired in from the first call (tag: session_id, prompt_version, phase)
-- [ ] `prompts/` directory + `CHANGELOG.md` created
-- [ ] Simple markdown feedback report printed at end
+- [x] PDF parsing tool (`parse_pdf` — handles both resume and JD)
+- [x] Company search tool (`search_company`)
+- [x] System prompt v0.1.0 — the interviewer's brain
+- [x] State block structure (Hybrid — code handles counters, LLM handles qualitative signals in Phase 2)
+- [x] Basic conversation loop (terminal input/output)
+- [x] State serialized and passed every turn
+- [x] `prompts/` directory + `CHANGELOG.md` created
+- [x] Profile extraction agent
+- [ ] Guardrails — prompt injection protection on inputs and candidate responses
+- [ ] Evaluator LLM call — feedback report generation
+- [ ] Langfuse wired in (tag: session_id, prompt_version, turn_count)
+- [ ] candidate_live_signal LLM extraction call (Phase 2)
 
 **Definition of done:** Run one complete interview with a real resume and JD. Read the transcript. Identify at least 5 specific failures.
 

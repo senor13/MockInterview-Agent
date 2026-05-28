@@ -5,6 +5,8 @@ from state.schema import InterviewState , CandidateLiveSignal , SessionMeta
 from config import PROMPT_VERSION
 from datetime import datetime
 import uuid
+from tools.guardrails import check_input
+from agent.evaluator import eval_agent
 
 
 def interview_agent(resume_text,JD_text,company_info,candidate_profile): #these arguments will come from a different LLM call which we are calling profile extraction agent
@@ -36,10 +38,23 @@ def interview_agent(resume_text,JD_text,company_info,candidate_profile): #these 
         else:
             turns += 1
             candidate_response = input("please enter your response: ")
+            check_response = check_input(candidate_response)
+            invalid_attempts = 0
+            while not check_response.safe:
+                invalid_attempts += 1
+                if invalid_attempts >= 3:
+                    print("too many invalid inputs. Ending the interview")
+                    return conversation_history
+                print(f"Invalid response : {check_response.reason}")
+                print("re-enter the repsonse")
+                candidate_response = input("please enter your response: ")
+                check_response = check_input(candidate_response)
+            
             conversation_history.append({"role":"user","content":candidate_response})
                 ##update the candidate live signal -> via LLM
     ## call llm to genrate the report -> a diff system prompt will be used to generating the report
-    return conversation_history
+    candidate_report, interview_eval = eval_agent(conversation_history = conversation_history,resume_text =  resume_text, jd_text = JD_text, system_prompt = system_prompt)
+    return candidate_report,interview_eval
             
 
 

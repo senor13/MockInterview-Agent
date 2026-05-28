@@ -1,5 +1,5 @@
 import os
-from openai import OpenAI
+from langfuse.openai import OpenAI
 from dotenv import load_dotenv
 from config import INTERVIEWER_MODEL
 import instructor
